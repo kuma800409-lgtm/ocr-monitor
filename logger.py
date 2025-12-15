@@ -231,6 +231,10 @@ class OCRLogger:
         region_info = f" | Region: {region_size}" if region_size else ""
         self.debug(f"OCR Start | Language: {language}{region_info}")
     
+    def log_ocr_stop(self):
+        """Log OCR monitoring stopped."""
+        self.info("OCR Monitoring Stopped")
+    
     def log_ocr_result(self, text_length, elapsed_ms, language):
         """Log OCR operation result."""
         preview = f"{text_length} chars" if text_length > 0 else "No text"
