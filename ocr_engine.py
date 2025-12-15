@@ -5,6 +5,8 @@ Contains all OCR processing logic including:
 - Tesseract auto-detection and configuration
 - Adaptive change detection with two-tier polling
 - OCR worker thread for background processing
+- Image preprocessing for improved accuracy
+- Position-aware text extraction and sorting
 """
 
 import sys
@@ -12,10 +14,15 @@ import os
 import shutil
 import time
 import hashlib
+from dataclasses import dataclass, field
+from typing import List, Optional
+from collections import defaultdict
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from PIL import Image
 import pytesseract
+import numpy as np
+import cv2
 
 from config import (
     DEFAULT_THRESHOLD,
@@ -26,6 +33,196 @@ from config import (
     DEFAULT_COOLDOWN_MS,
 )
 from logger import get_logger
+
+
+# ============================================================================
+# TextResult Data Structure
+# ============================================================================
+
+@dataclass
+class TextResult:
+    """
+    Structured OCR result with position and confidence information.
+    
+    Attributes:
+        text: The recognized text content
+        x: Left position of the text bounding box
+        y: Top position of the text bounding box
+        width: Width of the text bounding box
+        height: Height of the text bounding box
+        confidence: Tesseract confidence score (0-100)
+        block_num: Block number from Tesseract hierarchy
+        par_num: Paragraph number within block
+        line_num: Line number within paragraph
+        word_num: Word number within line
+    """
+    text: str
+    x: int
+    y: int
+    width: int
+    height: int
+    confidence: float
+    block_num: int = 0
+    par_num: int = 0
+    line_num: int = 0
+    word_num: int = 0
+    
+    def to_dict(self):
+        """Convert to dictionary for signal emission."""
+        return {
+            'text': self.text,
+            'x': self.x,
+            'y': self.y,
+            'width': self.width,
+            'height': self.height,
+            'confidence': self.confidence,
+            'block_num': self.block_num,
+            'par_num': self.par_num,
+            'line_num': self.line_num,
+            'word_num': self.word_num,
+        }
+
+
+# ============================================================================
+# Image Preprocessing for OCR
+# ============================================================================
+
+def preprocess_image_for_ocr(pil_image, threshold_value=150):
+    """
+    Preprocess image to improve OCR accuracy.
+    
+    Applies the following transformations:
+    1. Convert to grayscale
+    2. Apply binary threshold
+    3. Apply morphological operations to clean noise
+    
+    Args:
+        pil_image: PIL Image to preprocess
+        threshold_value: Threshold value for binary conversion (0-255)
+    
+    Returns:
+        PIL Image: Preprocessed image ready for OCR
+    """
+    # Convert PIL Image to numpy array (RGB format)
+    img_array = np.array(pil_image)
+    
+    # Convert RGB to grayscale
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Apply binary threshold
+    _, binary = cv2.threshold(gray, threshold_value, 255, cv2.THRESH_BINARY)
+    
+    # Apply morphological operations to clean noise
+    # Use a small kernel to remove small noise while preserving text
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
+    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    
+    # Convert back to PIL Image
+    return Image.fromarray(cleaned)
+
+
+def extract_text_with_positions(pil_image, lang='eng'):
+    """
+    Extract text from image with position information using image_to_data.
+    
+    Args:
+        pil_image: PIL Image to process
+        lang: Tesseract language code
+    
+    Returns:
+        List[TextResult]: List of text results with positions and confidence
+    """
+    # Get OCR data with positions
+    data = pytesseract.image_to_data(pil_image, lang=lang, output_type=pytesseract.Output.DICT)
+    
+    results = []
+    n_boxes = len(data['text'])
+    
+    for i in range(n_boxes):
+        # Skip empty text and low confidence results
+        text = data['text'][i].strip()
+        conf = data['conf'][i]
+        
+        # conf is -1 for non-word entries, skip those
+        if not text or conf == -1:
+            continue
+        
+        # Convert confidence to float (it comes as int or string)
+        try:
+            confidence = float(conf)
+        except (ValueError, TypeError):
+            confidence = 0.0
+        
+        result = TextResult(
+            text=text,
+            x=data['left'][i],
+            y=data['top'][i],
+            width=data['width'][i],
+            height=data['height'][i],
+            confidence=confidence,
+            block_num=data['block_num'][i],
+            par_num=data['par_num'][i],
+            line_num=data['line_num'][i],
+            word_num=data['word_num'][i],
+        )
+        results.append(result)
+    
+    return results
+
+
+def sort_text_results(results):
+    """
+    Sort text results by reading order (top-to-bottom, left-to-right).
+    
+    Uses Tesseract's hierarchy (block_num, par_num, line_num, word_num)
+    for reliable reading order.
+    
+    Args:
+        results: List[TextResult] to sort
+    
+    Returns:
+        List[TextResult]: Sorted results in reading order
+    """
+    # Sort by Tesseract's reading order hierarchy
+    return sorted(results, key=lambda r: (r.block_num, r.par_num, r.line_num, r.word_num))
+
+
+def reconstruct_text_from_results(results):
+    """
+    Reconstruct plain text from sorted TextResult list.
+    
+    Groups words by line and joins them with spaces,
+    then joins lines with newlines.
+    
+    Args:
+        results: List[TextResult] sorted in reading order
+    
+    Returns:
+        str: Reconstructed text with proper line breaks
+    """
+    if not results:
+        return ""
+    
+    # Group by (block_num, par_num, line_num)
+    lines = defaultdict(list)
+    for r in results:
+        line_key = (r.block_num, r.par_num, r.line_num)
+        lines[line_key].append(r)
+    
+    # Sort line keys and build text
+    sorted_line_keys = sorted(lines.keys())
+    text_lines = []
+    
+    for line_key in sorted_line_keys:
+        # Sort words within line by word_num (already sorted, but ensure)
+        line_words = sorted(lines[line_key], key=lambda r: r.word_num)
+        line_text = ' '.join(r.text for r in line_words)
+        text_lines.append(line_text)
+    
+    return '\n'.join(text_lines)
 
 
 # ============================================================================
@@ -445,26 +642,31 @@ class OCRWorker(QThread):
     Background thread for OCR processing.
     
     Runs Tesseract OCR on an image in a separate thread to avoid
-    blocking the UI. Emits signals when complete or on error.
+    blocking the UI. Uses image preprocessing and position-aware
+    text extraction for improved accuracy and proper reading order.
     
     Signals:
         result_ready(str, float): Emitted with OCR text and elapsed time
+        result_data_ready(object, float): Emitted with List[TextResult] and elapsed time
         error_occurred(str): Emitted with error message on failure
     """
     result_ready = pyqtSignal(str, float)
+    result_data_ready = pyqtSignal(object, float)  # List[TextResult], elapsed
     error_occurred = pyqtSignal(str)
     
-    def __init__(self, image, lang='eng'):
+    def __init__(self, image, lang='eng', preprocess=True):
         """
         Initialize the OCR worker.
         
         Args:
             image: PIL Image to process
             lang: Tesseract language code (default 'eng')
+            preprocess: Whether to apply image preprocessing (default True)
         """
         super().__init__()
         self.image = image
         self.lang = lang
+        self.preprocess = preprocess
         self.logger = get_logger()
     
     def run(self):
@@ -475,9 +677,29 @@ class OCRWorker(QThread):
             self.logger.log_ocr_start(self.lang, region_size)
             
             start_time = time.time()
-            text = pytesseract.image_to_string(self.image, lang=self.lang)
+            
+            # Step 1: Preprocess image for better OCR accuracy
+            if self.preprocess:
+                processed_image = preprocess_image_for_ocr(self.image)
+            else:
+                processed_image = self.image
+            
+            # Step 2: Extract text with position information
+            text_results = extract_text_with_positions(processed_image, self.lang)
+            
+            # Step 3: Sort results by reading order
+            sorted_results = sort_text_results(text_results)
+            
+            # Step 4: Reconstruct plain text from sorted results
+            text = reconstruct_text_from_results(sorted_results)
+            
             elapsed = time.time() - start_time
             elapsed_ms = elapsed * 1000
+            
+            # Calculate average confidence
+            if sorted_results:
+                avg_confidence = sum(r.confidence for r in sorted_results) / len(sorted_results)
+                self.logger.debug(f"OCR Confidence | Avg: {avg_confidence:.1f}% | Words: {len(sorted_results)}")
             
             # Log OCR result
             text_stripped = text.strip()
@@ -485,7 +707,10 @@ class OCRWorker(QThread):
             if text_stripped:
                 self.logger.log_text_detected(text_stripped, self.lang)
             
+            # Emit both plain text and structured results
             self.result_ready.emit(text_stripped, elapsed)
+            self.result_data_ready.emit(sorted_results, elapsed)
+            
         except Exception as e:
             self.logger.log_ocr_error(str(e), self.lang)
             self.error_occurred.emit(str(e))
