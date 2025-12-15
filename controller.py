@@ -175,14 +175,20 @@ class OCRMonitorController(QObject):
     
     def set_region(self, rect):
         """Set the selected region for monitoring."""
-        self.selected_region = {
-            'left': rect.x(),
-            'top': rect.y(),
-            'width': rect.width(),
-            'height': rect.height()
-        }
-        self.change_detector.reset()
-        self.region_selected.emit(self.selected_region)
+        try:
+            self.selected_region = {
+                'left': rect.x(),
+                'top': rect.y(),
+                'width': rect.width(),
+                'height': rect.height()
+            }
+            self.change_detector.reset()
+            self.region_selected.emit(self.selected_region)
+        except Exception:
+            self.logger.log_exception(
+                "Region Selection",
+            )
+            self.selected_region = None
     
     def has_region(self):
         """Check if a region is selected."""
@@ -235,8 +241,10 @@ class OCRMonitorController(QObject):
             screenshot = self.mss_instance.grab(self.selected_region)
             img = Image.frombytes('RGB', screenshot.size, screenshot.bgra, 'raw', 'BGRX')
             return img
-        except Exception as e:
-            self.logger.log_ocr_error(str(e))
+        except Exception:
+            self.logger.log_exception(
+                "Image Capture",
+            )
             return None
     
     def _on_timer_tick(self):
@@ -288,14 +296,20 @@ class OCRMonitorController(QObject):
         if not TESSERACT_PATH:
             return
         
-        self.ocr_count += 1
-        self.logger.log_ocr_start(self.current_language)
-        
-        self.ocr_worker = OCRWorker(image, self.current_language)
-        self.ocr_worker.result_ready.connect(self._on_ocr_result)
-        self.ocr_worker.error_occurred.connect(self._on_ocr_error)
-        self.ocr_worker.finished.connect(lambda: self.change_detector.mark_ocr_done(image))
-        self.ocr_worker.start()
+        try:
+            self.ocr_count += 1
+            self.logger.log_ocr_start(self.current_language)
+            
+            self.ocr_worker = OCRWorker(image, self.current_language)
+            self.ocr_worker.result_ready.connect(self._on_ocr_result)
+            self.ocr_worker.error_occurred.connect(self._on_ocr_error)
+            self.ocr_worker.finished.connect(lambda: self.change_detector.mark_ocr_done(image))
+            self.ocr_worker.start()
+        except Exception:
+            self.logger.log_exception(
+                "OCR Execution",
+            )
+            self.ocr_error.emit("OCR execution failed - see debug log for details")
     
     def _on_ocr_result(self, text, elapsed):
         """Handle OCR result."""
@@ -379,12 +393,15 @@ class OCRMonitorController(QObject):
                 - debug_logging_enabled, log_level
         """
         try:
-            with open(self.get_settings_path(), 'w') as f:
+            settings_path = self.get_settings_path()
+            with open(settings_path, 'w') as f:
                 json.dump(ui_settings, f, indent=2)
-            print(f"Settings saved to {self.get_settings_path()}")
+            self.logger.debug(f"Settings saved to {settings_path}")
             return True
-        except Exception as e:
-            print(f"Error saving settings: {e}")
+        except Exception:
+            self.logger.log_exception(
+                "Settings Save",
+            )
             return False
     
     def load_settings(self):
@@ -397,18 +414,20 @@ class OCRMonitorController(QObject):
         settings_path = self.get_settings_path()
         
         if not os.path.exists(settings_path):
-            print("No saved settings found, using defaults")
+            self.logger.debug("No saved settings found, using defaults")
             return None
         
         try:
             with open(settings_path, 'r') as f:
                 settings = json.load(f)
             
-            print(f"Settings loaded from {settings_path}")
+            self.logger.debug(f"Settings loaded from {settings_path}")
             self.settings_loaded.emit(settings)
             return settings
-        except Exception as e:
-            print(f"Error loading settings: {e}")
+        except Exception:
+            self.logger.log_exception(
+                "Settings Load",
+            )
             return None
     
     def apply_logging_settings(self, enabled, level):

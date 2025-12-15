@@ -6,7 +6,9 @@ translation API integration. Logs are written to ocr_debug.log.
 """
 
 import os
+import sys
 import logging
+import traceback
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
@@ -139,6 +141,86 @@ class OCRLogger:
         """Log an error message."""
         if self._enabled:
             self.logger.error(message)
+    
+    def critical(self, message):
+        """Log a critical error message."""
+        if self._enabled:
+            self.logger.critical(message)
+    
+    # ========================================================================
+    # Exception Logging Methods
+    # ========================================================================
+    
+    def log_exception(self, context, exc_info=None):
+        """
+        Log an exception with full stack trace and context.
+        
+        Args:
+            context: Description of what operation was being performed
+            exc_info: Exception info tuple (type, value, traceback) or None to use current exception
+        """
+        if exc_info is None:
+            exc_info = sys.exc_info()
+        
+        exc_type, exc_value, exc_tb = exc_info
+        
+        if exc_type is None:
+            self.error(f"Exception in {context}: No exception info available")
+            return
+        
+        # Format the exception details
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        exc_type_name = exc_type.__name__ if exc_type else "Unknown"
+        exc_message = str(exc_value) if exc_value else "No message"
+        
+        # Get the full stack trace
+        tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+        full_traceback = ''.join(tb_lines)
+        
+        # Log the exception with all details
+        log_message = (
+            f"\n{'='*60}\n"
+            f"EXCEPTION in {context}\n"
+            f"{'='*60}\n"
+            f"Timestamp: {timestamp}\n"
+            f"Type: {exc_type_name}\n"
+            f"Message: {exc_message}\n"
+            f"{'='*60}\n"
+            f"Stack Trace:\n{full_traceback}"
+            f"{'='*60}\n"
+        )
+        
+        # Always log exceptions regardless of enabled state (critical errors)
+        self.logger.error(log_message)
+    
+    def log_critical_error(self, context, error_message, additional_info=None):
+        """
+        Log a critical error with context information.
+        
+        Args:
+            context: Description of what operation failed
+            error_message: The error message
+            additional_info: Optional dict with additional context
+        """
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+        
+        log_message = (
+            f"\n{'='*60}\n"
+            f"CRITICAL ERROR in {context}\n"
+            f"{'='*60}\n"
+            f"Timestamp: {timestamp}\n"
+            f"Error: {error_message}\n"
+        )
+        
+        if additional_info:
+            log_message += f"Additional Info:\n"
+            for key, value in additional_info.items():
+                log_message += f"  {key}: {value}\n"
+        
+        log_message += f"{'='*60}\n"
+        
+        # Always log critical errors regardless of enabled state
+        self.logger.critical(log_message)
     
     # ========================================================================
     # OCR-Specific Logging Methods
