@@ -81,7 +81,7 @@ class OCROverlayWindow(QWidget):
         self.opacity_slider.setValue(self.bg_opacity)
         self.opacity_slider.setMinimumWidth(50)
         self.opacity_slider.setMaximumWidth(100)
-        self.opacity_slider.valueChanged.connect(self.on_opacity_changed)
+        self.opacity_slider.valueChanged.connect(self._on_opacity_changed)
         self.opacity_slider.setStyleSheet(OPACITY_SLIDER_STYLE)
         header.addWidget(self.opacity_slider, 1)
         
@@ -157,7 +157,7 @@ class OCROverlayWindow(QWidget):
         self._drag_pos = None
         super().mouseReleaseEvent(event)
     
-    def on_opacity_changed(self, value):
+    def _on_opacity_changed(self, value):
         self.bg_opacity = value
         self.opacity_value_label.setText(f"{int(value/255*100)}%")
         self.update()
@@ -241,16 +241,15 @@ class OCRMonitorApp(QMainWindow):
         self.controller.tesseract_status.connect(self._on_tesseract_status)
     
     def init_ui(self):
+        """Initialize the main window UI by assembling all sections."""
         self.setWindowTitle("OCR Monitor - Adaptive Change Detection")
         self.setMinimumSize(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
         self.resize(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
         
-        title_font = QFont(FONT_FAMILY, TITLE_FONT_SIZE)
-        title_font.setBold(True)
-        label_font = QFont(FONT_FAMILY, LABEL_FONT_SIZE)
-        mode_font = QFont(FONT_FAMILY, MODE_FONT_SIZE)
-        mode_font.setBold(True)
+        # Setup fonts used across sections
+        self._setup_fonts()
         
+        # Create main layout with scroll area
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -268,81 +267,110 @@ class OCRMonitorApp(QMainWindow):
         top_layout.setSpacing(15)
         top_layout.setContentsMargins(20, 20, 20, 20)
         
-        # Status Section
+        # Add all sections
+        top_layout.addWidget(self._create_status_section())
+        top_layout.addWidget(self._create_polling_section())
+        top_layout.addWidget(self._create_settings_section())
+        top_layout.addWidget(self._create_controls_section())
+        top_layout.addWidget(self._create_history_section())
+        top_layout.addStretch()
+        
+        scroll_area.setWidget(self.scroll_content_widget)
+        main_layout.addWidget(scroll_area)
+        
+        QTimer.singleShot(0, self._set_scroll_content_minimum_size)
+    
+    def _setup_fonts(self):
+        """Setup fonts used across UI sections."""
+        self._title_font = QFont(FONT_FAMILY, TITLE_FONT_SIZE)
+        self._title_font.setBold(True)
+        self._label_font = QFont(FONT_FAMILY, LABEL_FONT_SIZE)
+        self._mode_font = QFont(FONT_FAMILY, MODE_FONT_SIZE)
+        self._mode_font.setBold(True)
+    
+    def _create_status_section(self):
+        """Create the Status section showing Tesseract, region, and monitoring status."""
         status_group = QGroupBox("Status")
-        status_group.setFont(title_font)
+        status_group.setFont(self._title_font)
         status_layout = QHBoxLayout(status_group)
         status_layout.setSpacing(15)
         status_layout.setContentsMargins(15, 20, 15, 10)
         
         self.tesseract_label = QLabel("Tesseract: Checking...")
-        self.tesseract_label.setFont(label_font)
+        self.tesseract_label.setFont(self._label_font)
         self.tesseract_label.setWordWrap(True)
         self.region_label = QLabel("Region: Not selected")
-        self.region_label.setFont(label_font)
+        self.region_label.setFont(self._label_font)
         self.region_label.setWordWrap(True)
         self.monitor_label = QLabel("Monitoring: Off")
-        self.monitor_label.setFont(label_font)
+        self.monitor_label.setFont(self._label_font)
         self.monitor_label.setWordWrap(True)
         
         status_layout.addWidget(self.tesseract_label, 1)
         status_layout.addWidget(self.region_label, 1)
         status_layout.addWidget(self.monitor_label, 1)
-        top_layout.addWidget(status_group)
         
-        # Polling Status Section
+        return status_group
+    
+    def _create_polling_section(self):
+        """Create the Adaptive Polling Status section."""
         polling_group = QGroupBox("Adaptive Polling Status")
-        polling_group.setFont(title_font)
+        polling_group.setFont(self._title_font)
         polling_layout = QVBoxLayout(polling_group)
         polling_layout.setSpacing(10)
         polling_layout.setContentsMargins(15, 20, 15, 10)
         
+        # Mode and interval row
         mode_layout = QHBoxLayout()
         mode_layout.setSpacing(15)
         self.mode_label = QLabel("Mode: IDLE")
-        self.mode_label.setFont(mode_font)
+        self.mode_label.setFont(self._mode_font)
         self.mode_label.setStyleSheet("color: #0066cc;")
         self.mode_label.setWordWrap(True)
         mode_layout.addWidget(self.mode_label, 1)
         
         self.interval_label = QLabel("Interval: 1000ms")
-        self.interval_label.setFont(label_font)
+        self.interval_label.setFont(self._label_font)
         self.interval_label.setWordWrap(True)
         mode_layout.addWidget(self.interval_label, 1)
         polling_layout.addLayout(mode_layout)
         
+        # Status label
         self.change_status_label = QLabel("Status: Waiting to start...")
-        self.change_status_label.setFont(label_font)
+        self.change_status_label.setFont(self._label_font)
         self.change_status_label.setStyleSheet("color: #444;")
         self.change_status_label.setWordWrap(True)
         polling_layout.addWidget(self.change_status_label)
         
+        # Stats row
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(15)
         self.change_score_label = QLabel("Change: --")
-        self.change_score_label.setFont(label_font)
+        self.change_score_label.setFont(self._label_font)
         self.change_score_label.setWordWrap(True)
         self.stable_count_label = QLabel("Stable: --")
-        self.stable_count_label.setFont(label_font)
+        self.stable_count_label.setFont(self._label_font)
         self.stable_count_label.setWordWrap(True)
         self.efficiency_label = QLabel("Efficiency: --")
-        self.efficiency_label.setFont(label_font)
+        self.efficiency_label.setFont(self._label_font)
         self.efficiency_label.setWordWrap(True)
         stats_layout.addWidget(self.change_score_label, 1)
         stats_layout.addWidget(self.stable_count_label, 1)
         stats_layout.addWidget(self.efficiency_label, 1)
         polling_layout.addLayout(stats_layout)
         
+        # Capture/OCR counts
         self.stats_label = QLabel("Captures: 0 | OCRs: 0")
-        self.stats_label.setFont(label_font)
+        self.stats_label.setFont(self._label_font)
         self.stats_label.setWordWrap(True)
         polling_layout.addWidget(self.stats_label)
         
-        top_layout.addWidget(polling_group)
-
-        # Settings Section
+        return polling_group
+    
+    def _create_settings_section(self):
+        """Create the Settings section with language, intervals, and debug options."""
         settings_group = QGroupBox("Settings")
-        settings_group.setFont(title_font)
+        settings_group.setFont(self._title_font)
         settings_layout = QVBoxLayout(settings_group)
         settings_layout.setSpacing(12)
         settings_layout.setContentsMargins(15, 20, 15, 10)
@@ -351,10 +379,10 @@ class OCRMonitorApp(QMainWindow):
         row1 = QHBoxLayout()
         row1.setSpacing(10)
         lang_label = QLabel("Language:")
-        lang_label.setFont(label_font)
+        lang_label.setFont(self._label_font)
         row1.addWidget(lang_label)
         self.lang_combo = QComboBox()
-        self.lang_combo.setFont(label_font)
+        self.lang_combo.setFont(self._label_font)
         self.lang_combo.setMinimumWidth(200)
         self.lang_combo.currentIndexChanged.connect(self._on_language_changed)
         row1.addWidget(self.lang_combo, 1)
@@ -362,7 +390,7 @@ class OCRMonitorApp(QMainWindow):
         settings_layout.addLayout(row1)
         
         self.lang_status_label = QLabel("")
-        self.lang_status_label.setFont(label_font)
+        self.lang_status_label.setFont(self._label_font)
         self.lang_status_label.setWordWrap(True)
         self.lang_status_label.setStyleSheet("color: #666; font-size: 8pt;")
         settings_layout.addWidget(self.lang_status_label)
@@ -373,10 +401,10 @@ class OCRMonitorApp(QMainWindow):
         row2 = QHBoxLayout()
         row2.setSpacing(10)
         idle_label = QLabel("Idle (ms):")
-        idle_label.setFont(label_font)
+        idle_label.setFont(self._label_font)
         row2.addWidget(idle_label)
         self.idle_interval_spin = QSpinBox()
-        self.idle_interval_spin.setFont(label_font)
+        self.idle_interval_spin.setFont(self._label_font)
         self.idle_interval_spin.setMinimumWidth(70)
         self.idle_interval_spin.setRange(500, 5000)
         self.idle_interval_spin.setValue(1000)
@@ -384,10 +412,10 @@ class OCRMonitorApp(QMainWindow):
         row2.addWidget(self.idle_interval_spin)
         row2.addSpacing(15)
         active_label = QLabel("Active (ms):")
-        active_label.setFont(label_font)
+        active_label.setFont(self._label_font)
         row2.addWidget(active_label)
         self.active_interval_spin = QSpinBox()
-        self.active_interval_spin.setFont(label_font)
+        self.active_interval_spin.setFont(self._label_font)
         self.active_interval_spin.setMinimumWidth(70)
         self.active_interval_spin.setRange(50, 500)
         self.active_interval_spin.setValue(150)
@@ -400,17 +428,17 @@ class OCRMonitorApp(QMainWindow):
         row3 = QHBoxLayout()
         row3.setSpacing(10)
         sens_label = QLabel("Sensitivity:")
-        sens_label.setFont(label_font)
+        sens_label.setFont(self._label_font)
         row3.addWidget(sens_label)
         self.sensitivity_spin = QSpinBox()
-        self.sensitivity_spin.setFont(label_font)
+        self.sensitivity_spin.setFont(self._label_font)
         self.sensitivity_spin.setMinimumWidth(70)
         self.sensitivity_spin.setRange(1, 20)
         self.sensitivity_spin.setValue(5)
         self.sensitivity_spin.valueChanged.connect(self._on_sensitivity_changed)
         row3.addWidget(self.sensitivity_spin)
         self.sensitivity_label = QLabel("(Medium)")
-        self.sensitivity_label.setFont(label_font)
+        self.sensitivity_label.setFont(self._label_font)
         self.sensitivity_label.setMinimumWidth(80)
         row3.addWidget(self.sensitivity_label)
         row3.addStretch()
@@ -420,20 +448,20 @@ class OCRMonitorApp(QMainWindow):
         row4 = QHBoxLayout()
         row4.setSpacing(10)
         stab_label = QLabel("Stability:")
-        stab_label.setFont(label_font)
+        stab_label.setFont(self._label_font)
         row4.addWidget(stab_label)
         self.stability_spin = QSpinBox()
-        self.stability_spin.setFont(label_font)
+        self.stability_spin.setFont(self._label_font)
         self.stability_spin.setMinimumWidth(60)
         self.stability_spin.setRange(1, 10)
         self.stability_spin.setValue(3)
         row4.addWidget(self.stability_spin)
         row4.addSpacing(15)
         wait_label = QLabel("Max Wait (s):")
-        wait_label.setFont(label_font)
+        wait_label.setFont(self._label_font)
         row4.addWidget(wait_label)
         self.max_wait_spin = QSpinBox()
-        self.max_wait_spin.setFont(label_font)
+        self.max_wait_spin.setFont(self._label_font)
         self.max_wait_spin.setMinimumWidth(60)
         self.max_wait_spin.setRange(1, 30)
         self.max_wait_spin.setValue(5)
@@ -445,16 +473,16 @@ class OCRMonitorApp(QMainWindow):
         row5 = QHBoxLayout()
         row5.setSpacing(10)
         debug_label = QLabel("Debug Log:")
-        debug_label.setFont(label_font)
+        debug_label.setFont(self._label_font)
         row5.addWidget(debug_label)
         self.debug_log_checkbox = QPushButton("Logging ON")
-        self.debug_log_checkbox.setFont(label_font)
+        self.debug_log_checkbox.setFont(self._label_font)
         self.debug_log_checkbox.setCheckable(True)
         self.debug_log_checkbox.setChecked(True)
         self.debug_log_checkbox.clicked.connect(self._on_debug_log_toggled)
         row5.addWidget(self.debug_log_checkbox)
         self.log_level_combo = QComboBox()
-        self.log_level_combo.setFont(label_font)
+        self.log_level_combo.setFont(self._label_font)
         self.log_level_combo.addItems(['DEBUG', 'INFO', 'WARNING', 'ERROR'])
         self.log_level_combo.setCurrentText('DEBUG')
         self.log_level_combo.currentTextChanged.connect(self._on_log_level_changed)
@@ -462,51 +490,53 @@ class OCRMonitorApp(QMainWindow):
         row5.addStretch()
         settings_layout.addLayout(row5)
         
-        top_layout.addWidget(settings_group)
-
-        # Controls Section
+        return settings_group
+    
+    def _create_controls_section(self):
+        """Create the Controls section with action buttons."""
         controls_group = QGroupBox("Controls")
-        controls_group.setFont(title_font)
+        controls_group.setFont(self._title_font)
         controls_layout = QHBoxLayout(controls_group)
         controls_layout.setSpacing(15)
         controls_layout.setContentsMargins(15, 20, 15, 10)
         
         self.select_btn = QPushButton("Select Region\n(Ctrl+Shift+X)")
-        self.select_btn.setFont(label_font)
+        self.select_btn.setFont(self._label_font)
         self.select_btn.setStyleSheet("background-color: #0078d4; color: white; padding: 8px 16px;")
         self.select_btn.clicked.connect(self._show_region_selector)
         controls_layout.addWidget(self.select_btn)
         
         self.toggle_monitor_btn = QPushButton("Start\nMonitoring")
-        self.toggle_monitor_btn.setFont(label_font)
+        self.toggle_monitor_btn.setFont(self._label_font)
         self.toggle_monitor_btn.setStyleSheet("background-color: #00aa00; color: white; padding: 8px 16px;")
         self.toggle_monitor_btn.setEnabled(False)
         self.toggle_monitor_btn.clicked.connect(self._toggle_monitoring)
         controls_layout.addWidget(self.toggle_monitor_btn)
         
         self.show_overlay_btn = QPushButton("Show Overlay\nWindow")
-        self.show_overlay_btn.setFont(label_font)
+        self.show_overlay_btn.setFont(self._label_font)
         self.show_overlay_btn.setStyleSheet("background-color: #0078d4; color: white; padding: 8px 16px;")
         self.show_overlay_btn.clicked.connect(self._toggle_overlay)
         controls_layout.addWidget(self.show_overlay_btn)
         
         self.copy_btn = QPushButton("Copy Text")
-        self.copy_btn.setFont(label_font)
+        self.copy_btn.setFont(self._label_font)
         self.copy_btn.setStyleSheet("background-color: #666; color: white; padding: 8px 16px;")
         self.copy_btn.clicked.connect(self._copy_text)
         controls_layout.addWidget(self.copy_btn)
         
-        top_layout.addWidget(controls_group)
-        
-        # History Section
+        return controls_group
+    
+    def _create_history_section(self):
+        """Create the OCR History section."""
         history_group = QGroupBox("OCR History (Last 10)")
-        history_group.setFont(title_font)
+        history_group.setFont(self._title_font)
         history_layout = QVBoxLayout(history_group)
         history_layout.setSpacing(10)
         history_layout.setContentsMargins(15, 20, 15, 10)
         
         self.history_list = QListWidget()
-        self.history_list.setFont(label_font)
+        self.history_list.setFont(self._label_font)
         self.history_list.setMinimumHeight(100)
         self.history_list.setMaximumHeight(150)
         self.history_list.setAlternatingRowColors(True)
@@ -520,18 +550,12 @@ class OCRMonitorApp(QMainWindow):
         history_layout.addWidget(self.history_list)
         
         clear_history_btn = QPushButton("Clear History")
-        clear_history_btn.setFont(label_font)
+        clear_history_btn.setFont(self._label_font)
         clear_history_btn.setStyleSheet("background-color: #666; color: white; padding: 4px 8px;")
         clear_history_btn.clicked.connect(self._clear_history)
         history_layout.addWidget(clear_history_btn)
         
-        top_layout.addWidget(history_group)
-        top_layout.addStretch()
-        
-        scroll_area.setWidget(self.scroll_content_widget)
-        main_layout.addWidget(scroll_area)
-        
-        QTimer.singleShot(0, self._set_scroll_content_minimum_size)
+        return history_group
     
     def _set_scroll_content_minimum_size(self):
         content_size = self.scroll_content_widget.sizeHint()
