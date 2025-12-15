@@ -302,7 +302,7 @@ class OCRMonitorController(QObject):
         result_text = text if text else "(No text detected)"
         
         if text:
-            self.logger.log_ocr_result(text, elapsed)
+            self.logger.log_ocr_result(text, elapsed, self.current_language)
             self._add_to_history(text)
         
         self.ocr_result_ready.emit(result_text, elapsed)
