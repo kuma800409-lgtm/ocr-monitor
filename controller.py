@@ -215,7 +215,7 @@ class OCRMonitorController(QObject):
         initial_interval = self.change_detector.idle_interval_ms
         self.capture_timer.start(initial_interval)
         
-        self.logger.log_mode_change("IDLE", initial_interval)
+        self.logger.log_polling_interval("IDLE", initial_interval)
         self.monitoring_started.emit()
         return True
     
@@ -277,7 +277,7 @@ class OCRMonitorController(QObject):
         current_interval = self.capture_timer.interval()
         if current_interval != result['next_interval_ms']:
             self.capture_timer.setInterval(result['next_interval_ms'])
-            self.logger.log_mode_change(result['mode'].upper(), result['next_interval_ms'])
+            self.logger.log_polling_interval(result['mode'].upper(), result['next_interval_ms'])
         
         # Run OCR if needed
         if result['should_ocr']:

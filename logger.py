@@ -174,6 +174,10 @@ class OCRLogger:
         """Log polling mode change."""
         self.debug(f"Mode Change | {old_mode} -> {new_mode}")
     
+    def log_polling_interval(self, mode, interval_ms):
+        """Log polling interval change."""
+        self.debug(f"Polling Interval | Mode: {mode} | Interval: {interval_ms}ms")
+    
     # ========================================================================
     # Translation API Hooks (Future Integration)
     # ========================================================================
