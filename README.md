@@ -130,7 +130,7 @@ When content is idle (most of the time), CPU usage is minimal.
 2. Install to: `C:\Program Files\Tesseract-OCR`
 3. Restart the app
 
-If installed elsewhere, edit `ocr_monitor.py` and add after imports:
+If installed elsewhere, edit `ocr_engine.py` and add after imports:
 ```python
 pytesseract.pytesseract.tesseract_cmd = r'C:\Your\Path\tesseract.exe'
 ```
@@ -161,7 +161,13 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Your\Path\tesseract.exe'
 
 ## Files
 
-- `ocr_monitor.py` - Main application with adaptive change detection
+- `main.py` - Application entry point
+- `controller.py` - Business logic controller (monitoring, OCR, history, settings)
+- `ui.py` - UI components (main window and overlay window)
+- `ocr_engine.py` - OCR processing (Tesseract detection, change detection, OCR worker)
+- `config.py` - Configuration constants and styles
+- `logger.py` - Debug logging
+- `utils.py` - Utility functions (hotkey registration, region selector)
 - `setup.bat` - Creates venv and installs dependencies
 - `run.bat` - Starts the app
 - `requirements.txt` - Python dependencies
