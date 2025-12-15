@@ -5,7 +5,6 @@ Contains all OCR processing logic including:
 - Tesseract auto-detection and configuration
 - Adaptive change detection with two-tier polling
 - OCR worker thread for background processing
-- Image preprocessing for improved accuracy
 - Position-aware text extraction and sorting
 """
 
@@ -14,15 +13,13 @@ import os
 import shutil
 import time
 import hashlib
-from dataclasses import dataclass, field
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import List
 from collections import defaultdict
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from PIL import Image
 import pytesseract
-import numpy as np
-import cv2
 
 from config import (
     DEFAULT_THRESHOLD,
@@ -84,45 +81,8 @@ class TextResult:
 
 
 # ============================================================================
-# Image Preprocessing for OCR
+# Position-Aware Text Extraction
 # ============================================================================
-
-def preprocess_image_for_ocr(pil_image, threshold_value=150):
-    """
-    Preprocess image to improve OCR accuracy.
-    
-    Applies the following transformations:
-    1. Convert to grayscale
-    2. Apply binary threshold
-    3. Apply morphological operations to clean noise
-    
-    Args:
-        pil_image: PIL Image to preprocess
-        threshold_value: Threshold value for binary conversion (0-255)
-    
-    Returns:
-        PIL Image: Preprocessed image ready for OCR
-    """
-    # Convert PIL Image to numpy array (RGB format)
-    img_array = np.array(pil_image)
-    
-    # Convert RGB to grayscale
-    if len(img_array.shape) == 3:
-        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = img_array
-    
-    # Apply binary threshold
-    _, binary = cv2.threshold(gray, threshold_value, 255, cv2.THRESH_BINARY)
-    
-    # Apply morphological operations to clean noise
-    # Use a small kernel to remove small noise while preserving text
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-    cleaned = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    
-    # Convert back to PIL Image
-    return Image.fromarray(cleaned)
-
 
 def extract_text_with_positions(pil_image, lang='eng'):
     """
@@ -642,8 +602,8 @@ class OCRWorker(QThread):
     Background thread for OCR processing.
     
     Runs Tesseract OCR on an image in a separate thread to avoid
-    blocking the UI. Uses image preprocessing and position-aware
-    text extraction for improved accuracy and proper reading order.
+    blocking the UI. Uses position-aware text extraction for proper
+    reading order.
     
     Signals:
         result_ready(str, float): Emitted with OCR text and elapsed time
@@ -654,19 +614,17 @@ class OCRWorker(QThread):
     result_data_ready = pyqtSignal(object, float)  # List[TextResult], elapsed
     error_occurred = pyqtSignal(str)
     
-    def __init__(self, image, lang='eng', preprocess=True):
+    def __init__(self, image, lang='eng'):
         """
         Initialize the OCR worker.
         
         Args:
             image: PIL Image to process
             lang: Tesseract language code (default 'eng')
-            preprocess: Whether to apply image preprocessing (default True)
         """
         super().__init__()
         self.image = image
         self.lang = lang
-        self.preprocess = preprocess
         self.logger = get_logger()
     
     def run(self):
@@ -678,19 +636,13 @@ class OCRWorker(QThread):
             
             start_time = time.time()
             
-            # Step 1: Preprocess image for better OCR accuracy
-            if self.preprocess:
-                processed_image = preprocess_image_for_ocr(self.image)
-            else:
-                processed_image = self.image
+            # Step 1: Extract text with position information
+            text_results = extract_text_with_positions(self.image, self.lang)
             
-            # Step 2: Extract text with position information
-            text_results = extract_text_with_positions(processed_image, self.lang)
-            
-            # Step 3: Sort results by reading order
+            # Step 2: Sort results by reading order
             sorted_results = sort_text_results(text_results)
             
-            # Step 4: Reconstruct plain text from sorted results
+            # Step 3: Reconstruct plain text from sorted results
             text = reconstruct_text_from_results(sorted_results)
             
             elapsed = time.time() - start_time
